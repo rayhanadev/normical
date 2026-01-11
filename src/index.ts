@@ -4,12 +4,14 @@ import {
 	type NormalizedEvent,
 	computeContentHash,
 	computeEtag,
+	computeHash,
 	computeStableUid,
 	createCancelledEventLines,
 	getEventState,
 	getLastGoodSnapshot,
 	getProperty,
 	getPreviousSnapshot,
+	getUpstreamHash,
 	normalizeEventLines,
 	parseIcs,
 	saveEventState,
@@ -84,6 +86,24 @@ export default {
 				}
 			}
 
+			const upstreamHash = await computeHash(rawIcs);
+			const cachedHash = await getUpstreamHash(env.CALENDAR_STATE);
+
+			if (cachedHash === upstreamHash) {
+				const cached = await getLastGoodSnapshot(env.CALENDAR_STATE);
+				if (cached) {
+					const etag = await computeEtag(cached);
+					const ifNoneMatch = request.headers.get('If-None-Match');
+					if (ifNoneMatch === etag) {
+						return new Response(null, {
+							status: 304,
+							headers: { ETag: etag, ...corsHeaders() },
+						});
+					}
+					return createIcsResponse(cached, etag);
+				}
+			}
+
 			const parsed = parseIcs(rawIcs);
 			const normalized = await normalizeCalendar(parsed, env.CALENDAR_STATE, env.DEFAULT_TIMEZONE);
 			const output = serializeCalendar(normalized, env.DEFAULT_TIMEZONE);
@@ -101,7 +121,7 @@ export default {
 				});
 			}
 
-			ctx.waitUntil(saveSnapshot(env.CALENDAR_STATE, output));
+			ctx.waitUntil(saveSnapshot(env.CALENDAR_STATE, output, upstreamHash));
 
 			return createIcsResponse(output, etag);
 		} catch (error) {

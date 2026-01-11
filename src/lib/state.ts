@@ -44,10 +44,19 @@ export async function getLastGoodSnapshot(kv: KVNamespace): Promise<string | nul
 	}
 }
 
-export async function saveSnapshot(kv: KVNamespace, content: string): Promise<void> {
+export async function saveSnapshot(kv: KVNamespace, content: string, upstreamHash: string): Promise<void> {
 	try {
 		await kv.put('snapshot:latest', content);
+		await kv.put('snapshot:upstream_hash', upstreamHash);
 	} catch (e) {
 		console.error('Failed to save snapshot:', e);
+	}
+}
+
+export async function getUpstreamHash(kv: KVNamespace): Promise<string | null> {
+	try {
+		return await kv.get('snapshot:upstream_hash');
+	} catch {
+		return null;
 	}
 }
