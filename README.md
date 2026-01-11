@@ -1,6 +1,6 @@
-# CalProxy
+# Normical
 
-A Cloudflare Worker that acts as a calendar reconciliation engine between Microsoft Outlook ICS feeds and Google Calendar. It normalizes ICS data to fix timezone issues, UID instability, and other incompatibilities that cause events to silently fail when importing Microsoft calendars into Google.
+A hosted service that normalizes Microsoft Outlook ICS feeds for reliable Google Calendar sync. Fixes timezone issues, UID instability, and other incompatibilities that cause events to silently fail when importing Microsoft calendars into Google.
 
 ## The Problem
 
@@ -12,15 +12,17 @@ When you subscribe to a Microsoft Outlook/Exchange calendar from Google Calendar
 - **Deletions don't sync** - Microsoft removes events from the feed instead of marking them cancelled
 - **UIDs change** - Outlook regenerates UIDs on edits, causing Google to create duplicates
 
-## The Solution
+## Usage
 
-CalProxy acts as middleware that:
+1. Visit [normical.com](https://normical.com)
+2. Paste your Outlook ICS calendar URL
+3. Click "Generate proxy URL"
+4. Copy the generated proxy URL
+5. Add the proxy URL to Google Calendar (instead of the original Outlook URL)
 
-1. Fetches your Outlook ICS feed
-2. Normalizes it to be Google Calendar compatible
-3. Serves a corrected ICS feed that Google can properly import
+To delete your calendar data, append `?delete=1` to your proxy URL.
 
-## Deployment
+## Self-Hosting
 
 ### Prerequisites
 
@@ -54,21 +56,11 @@ bunx wrangler kv namespace create CALENDAR_STATE
 }
 ```
 
-4. Configure environment variables in the [Cloudflare Dashboard](https://dash.cloudflare.com):
-   - Go to **Workers & Pages** → Your Worker → **Settings** → **Variables**
-   - Add the following environment variables:
+4. (Optional) Configure environment variables in the [Cloudflare Dashboard](https://dash.cloudflare.com):
 
    | Variable           | Required | Description                                                                      |
    | ------------------ | -------- | -------------------------------------------------------------------------------- |
-   | `UPSTREAM_ICS_URL` | Yes      | The Microsoft Outlook ICS feed URL to proxy                                      |
    | `DEFAULT_TIMEZONE` | No       | IANA timezone for events without explicit timezone (default: `America/New_York`) |
-
-   For local development, create a `.env.local` file:
-
-   ```
-   UPSTREAM_ICS_URL=https://outlook.office365.com/owa/calendar/...
-   DEFAULT_TIMEZONE=America/New_York
-   ```
 
 5. Deploy:
 
@@ -76,14 +68,7 @@ bunx wrangler kv namespace create CALENDAR_STATE
 bunx wrangler deploy
 ```
 
-6. Add the worker URL to Google Calendar instead of the original Outlook URL.
-
-## Environment Variables
-
-| Variable           | Required | Description                                                                      |
-| ------------------ | -------- | -------------------------------------------------------------------------------- |
-| `UPSTREAM_ICS_URL` | Yes      | The Microsoft Outlook ICS feed URL to proxy                                      |
-| `DEFAULT_TIMEZONE` | No       | IANA timezone for events without explicit timezone (default: `America/New_York`) |
+6. Users can now visit your worker URL to register their calendars via the web UI.
 
 ## Local Development
 
@@ -91,25 +76,27 @@ bunx wrangler deploy
 bunx wrangler dev
 ```
 
-Then access `http://localhost:8787` to test the proxy.
+Then access `http://localhost:8787` to test the service.
 
 ## API Endpoints
 
-| Endpoint        | Description                         |
-| --------------- | ----------------------------------- |
-| `/`             | Returns the normalized ICS calendar |
-| `/calendar.ics` | Same as `/`                         |
-| `/health`       | Health check endpoint               |
+| Endpoint                        | Method | Description                                      |
+| ------------------------------- | ------ | ------------------------------------------------ |
+| `/`                             | GET    | Web UI for registering calendars                 |
+| `/register`                     | POST   | Register a calendar (JSON body: `{ "url": "..." }`) |
+| `/{hash}/calendar.ics`          | GET    | Returns the normalized ICS calendar              |
+| `/{hash}/calendar.ics?delete=1` | GET    | Deletes all stored data for this calendar        |
+| `/health`                       | GET    | Health check endpoint                            |
 
-## Microsoft → Google Calendar Discrepancies
+## Microsoft to Google Calendar Discrepancies
 
-This section documents the specific incompatibilities between Microsoft Outlook ICS exports and Google Calendar imports that CalProxy addresses.
+This section documents the specific incompatibilities between Microsoft Outlook ICS exports and Google Calendar imports that Normical addresses.
 
 ### 1. Timezone Name Incompatibility
 
 **Problem**: Microsoft uses Windows timezone names (e.g., `US Eastern Standard Time`, `Eastern Standard Time`) which Google Calendar doesn't recognize, causing events to be silently dropped.
 
-**Solution**: CalProxy maps all Microsoft timezone names to IANA standard identifiers:
+**Solution**: Normical maps all Microsoft timezone names to IANA standard identifiers:
 
 | Microsoft Name             | IANA Identifier                |
 | -------------------------- | ------------------------------ |
@@ -123,13 +110,13 @@ This section documents the specific incompatibilities between Microsoft Outlook 
 
 **Problem**: Outlook emits datetime values without timezone information (floating times). Google interprets these as UTC, causing events to appear at wrong times.
 
-**Solution**: CalProxy adds explicit `TZID` parameters to all floating datetime properties using the configured default timezone.
+**Solution**: Normical adds explicit `TZID` parameters to all floating datetime properties using the configured default timezone.
 
 ### 3. UID Instability
 
 **Problem**: Microsoft Outlook regenerates UIDs when events are edited. Google treats UID as the event identity, so changed UIDs create duplicate events.
 
-**Solution**: CalProxy generates stable synthetic UIDs by hashing immutable event properties:
+**Solution**: Normical generates stable synthetic UIDs by hashing immutable event properties:
 
 ```
 UID = SHA256(DTSTART + SUMMARY + ORGANIZER + original_uid)
@@ -139,13 +126,13 @@ UID = SHA256(DTSTART + SUMMARY + ORGANIZER + original_uid)
 
 **Problem**: When events are deleted in Outlook, they simply disappear from the ICS feed. Google never removes events that go missing - it assumes they're just not in the current view.
 
-**Solution**: CalProxy maintains a KV-backed registry of seen events. When an event disappears, it emits a `STATUS:CANCELLED` event to explicitly delete it from Google.
+**Solution**: Normical maintains a KV-backed registry of seen events. When an event disappears, it emits a `STATUS:CANCELLED` event to explicitly delete it from Google.
 
 ### 5. Ignored Updates
 
 **Problem**: Google aggressively caches ICS feeds and ignores content changes if the `SEQUENCE` number hasn't incremented.
 
-**Solution**: CalProxy:
+**Solution**: Normical:
 
 - Tracks content hashes for each event in KV storage
 - Automatically increments `SEQUENCE` when event content changes
@@ -156,7 +143,7 @@ UID = SHA256(DTSTART + SUMMARY + ORGANIZER + original_uid)
 
 **Problem**: Microsoft emits RRULE (recurrence rule) combinations that Google doesn't support, such as `BYDAY=MO;BYSETPOS=1`.
 
-**Solution**: CalProxy rewrites unsupported RRULE patterns to Google-compatible equivalents:
+**Solution**: Normical rewrites unsupported RRULE patterns to Google-compatible equivalents:
 
 ```
 BYDAY=MO;BYSETPOS=1 → BYDAY=1MO
@@ -166,13 +153,13 @@ BYDAY=MO;BYSETPOS=1 → BYDAY=1MO
 
 **Problem**: Google requires parent recurring events to appear before their exceptions (events with `RECURRENCE-ID`). Microsoft doesn't guarantee this order.
 
-**Solution**: CalProxy sorts all events: master events first (sorted by UID), then exceptions (sorted by UID and RECURRENCE-ID).
+**Solution**: Normical sorts all events: master events first (sorted by UID), then exceptions (sorted by UID and RECURRENCE-ID).
 
 ### 8. VTIMEZONE Definitions
 
 **Problem**: Microsoft includes VTIMEZONE blocks with Windows timezone names that Google doesn't recognize.
 
-**Solution**: CalProxy:
+**Solution**: Normical:
 
 - Normalizes existing VTIMEZONE block identifiers to IANA names
 - Injects proper VTIMEZONE definitions with correct DST rules for the default timezone
@@ -181,20 +168,20 @@ BYDAY=MO;BYSETPOS=1 → BYDAY=1MO
 
 **Problem**: Microsoft sometimes reuses ETags even when content changes. Google's aggressive caching (12-24 hours) means changes don't propagate.
 
-**Solution**: CalProxy generates its own ETags from a SHA-256 hash of the normalized output, ensuring any content change produces a new ETag.
+**Solution**: Normical generates its own ETags from a SHA-256 hash of the normalized output, ensuring any content change produces a new ETag.
 
 ### 10. Empty Feed Protection
 
 **Problem**: If Microsoft temporarily returns an empty feed (due to auth issues or service problems), Google would delete all events.
 
-**Solution**: CalProxy maintains a "last known good" snapshot in KV storage. If the upstream feed is empty or returns an error, it serves the cached snapshot instead.
+**Solution**: Normical maintains a "last known good" snapshot in KV storage. If the upstream feed is empty or returns an error, it serves the cached snapshot instead.
 
 ## Architecture
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Google         │     │   CalProxy      │     │  Microsoft      │
-│  Calendar       │────▶│   (CF Worker)   │────▶│  Outlook        │
+│  Google         │     │    Normical     │     │  Microsoft      │
+│  Calendar       │────▶│  (CF Worker)    │────▶│  Outlook        │
 │                 │◀────│                 │◀────│                 │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
                                │
@@ -204,6 +191,8 @@ BYDAY=MO;BYSETPOS=1 → BYDAY=1MO
                         │  (State Store)  │
                         └─────────────────┘
 ```
+
+Each registered calendar gets a unique hash-based URL. State is stored per-tenant in KV, enabling multi-user support without configuration.
 
 ## License
 
