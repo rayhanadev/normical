@@ -45,12 +45,12 @@ bunx wrangler kv namespace create CALENDAR_STATE
 
 ```jsonc
 {
-  "kv_namespaces": [
-    {
-      "binding": "CALENDAR_STATE",
-      "id": "YOUR_KV_NAMESPACE_ID",
-    },
-  ],
+	"kv_namespaces": [
+		{
+			"binding": "CALENDAR_STATE",
+			"id": "YOUR_KV_NAMESPACE_ID",
+		},
+	],
 }
 ```
 
