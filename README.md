@@ -2,6 +2,8 @@
 
 A hosted service that normalizes Microsoft Outlook ICS feeds for reliable Google Calendar sync. Fixes timezone issues, UID instability, and other incompatibilities that cause events to silently fail when importing Microsoft calendars into Google.
 
+<img width="1807" height="994" alt="image" src="https://github.com/user-attachments/assets/c357aa4f-f1dc-48ea-af79-f94e80cd25f5" />
+
 ## The Problem
 
 When you subscribe to a Microsoft Outlook/Exchange calendar from Google Calendar, several issues occur:
